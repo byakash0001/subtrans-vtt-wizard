@@ -17,7 +17,8 @@ interface TranslationState {
 }
 
 export const SubtitleTranslator: React.FC = () => {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [englishFile, setEnglishFile] = useState<File | null>(null);
+  const [koreanFile, setKoreanFile] = useState<File | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState('');
   const [translationState, setTranslationState] = useState<TranslationState>({
     status: 'idle',
@@ -25,11 +26,16 @@ export const SubtitleTranslator: React.FC = () => {
   });
   const { toast } = useToast();
 
+  const handleFilesSelect = (english: File | null, korean: File | null) => {
+    setEnglishFile(english);
+    setKoreanFile(korean);
+  };
+
   const handleTranslation = async () => {
-    if (!selectedFile || !selectedLanguage) {
+    if (!englishFile || !koreanFile || !selectedLanguage) {
       toast({
         title: "Missing Requirements",
-        description: "Please select both a file and target language.",
+        description: "Please select both English and Korean files, and target language.",
         variant: "destructive"
       });
       return;
@@ -44,7 +50,8 @@ export const SubtitleTranslator: React.FC = () => {
 
     try {
       const formData = new FormData();
-      formData.append('file', selectedFile);
+      formData.append('englishFile', englishFile);
+      formData.append('koreanFile', koreanFile);
       formData.append('targetLanguage', selectedLanguage);
 
       // For demo purposes, we'll simulate the translation process
@@ -122,7 +129,8 @@ export const SubtitleTranslator: React.FC = () => {
   };
 
   const handleReset = () => {
-    setSelectedFile(null);
+    setEnglishFile(null);
+    setKoreanFile(null);
     setSelectedLanguage('');
     setTranslationState({
       status: 'idle',
@@ -130,7 +138,7 @@ export const SubtitleTranslator: React.FC = () => {
     });
   };
 
-  const isReadyToTranslate = selectedFile && selectedLanguage && translationState.status === 'idle';
+  const isReadyToTranslate = englishFile && koreanFile && selectedLanguage && translationState.status === 'idle';
   const isProcessing = translationState.status === 'processing';
 
   return (
@@ -157,13 +165,14 @@ export const SubtitleTranslator: React.FC = () => {
           
           {/* File Upload */}
           <FileUpload
-            onFileSelect={setSelectedFile}
-            selectedFile={selectedFile}
+            onFilesSelect={handleFilesSelect}
+            englishFile={englishFile}
+            koreanFile={koreanFile}
             isProcessing={isProcessing}
           />
 
           {/* Language Selection */}
-          {selectedFile && (
+          {(englishFile || koreanFile) && (
             <div className="animate-slide-up">
               <LanguageSelector
                 selectedLanguage={selectedLanguage}

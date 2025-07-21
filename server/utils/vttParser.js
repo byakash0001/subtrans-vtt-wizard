@@ -1,6 +1,6 @@
 /**
  * Parse VTT file content into structured subtitle blocks
- * Each block contains: number, startTime, endTime, englishText, referenceText
+ * For single-language files: Each block contains: number, start, end, text
  */
 function parseVTT(vttContent) {
   const lines = vttContent.split('\n').map(line => line.trim());
@@ -35,25 +35,24 @@ function parseVTT(vttContent) {
       continue;
     }
     
-    const [startTime, endTime] = timestampLine.split('-->').map(t => t.trim());
+    const [start, end] = timestampLine.split('-->').map(t => t.trim());
     i++;
     
-    // Parse subtitle lines (English + Reference language)
-    const subtitleLines = [];
-    while (i < lines.length && lines[i] !== '') {
-      subtitleLines.push(lines[i]);
-      i++;
-    }
+    // Parse subtitle text (single line for each language file)
+    const text = lines[i] || '';
+    i++;
     
-    if (subtitleLines.length >= 2) {
-      blocks.push({
-        number: blockNumber,
-        startTime,
-        endTime,
-        englishText: subtitleLines[0],
-        referenceText: subtitleLines[1],
-        originalTimestamp: timestampLine
-      });
+    blocks.push({
+      number: blockNumber,
+      start,
+      end,
+      text,
+      originalTimestamp: timestampLine
+    });
+    
+    // Skip any remaining lines until next block or end
+    while (i < lines.length && lines[i] !== '' && isNaN(parseInt(lines[i]))) {
+      i++;
     }
   }
   
@@ -68,8 +67,8 @@ function formatVTT(blocks) {
   
   blocks.forEach(block => {
     vtt += `${block.number}\n`;
-    vtt += `${block.originalTimestamp}\n`;
-    vtt += `${block.translatedText}\n\n`;
+    vtt += `${block.start} --> ${block.end}\n`;
+    vtt += `${block.text}\n\n`;
   });
   
   return vtt;
@@ -87,16 +86,19 @@ function createBatches(blocks, batchSize = 20) {
 }
 
 /**
- * Format a batch of subtitle blocks for OpenAI API
+ * Format a batch of subtitle blocks for OpenAI API with dual-language support
  */
 function formatBatchForAPI(batch) {
   let formatted = 'WEBVTT\n\n';
   
   batch.forEach(block => {
     formatted += `${block.number}\n`;
-    formatted += `${block.originalTimestamp}\n`;
-    formatted += `${block.englishText}\n`;
-    formatted += `${block.referenceText}\n\n`;
+    formatted += `${block.start} --> ${block.end}\n`;
+    formatted += `${block.text}\n`;
+    if (block.referenceText) {
+      formatted += `${block.referenceText}\n`;
+    }
+    formatted += '\n';
   });
   
   return formatted;
@@ -145,7 +147,7 @@ function parseAPIResponse(response, originalBatch) {
     if (originalBlock) {
       translatedBlocks.push({
         ...originalBlock,
-        translatedText: translatedText
+        text: translatedText
       });
     }
     

@@ -50,29 +50,43 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-app.post('/api/translate', upload.single('file'), async (req, res) => {
+app.post('/api/translate', upload.fields([
+  { name: 'englishFile', maxCount: 1 },
+  { name: 'koreanFile', maxCount: 1 }
+]), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+    if (!req.files || !req.files.englishFile || !req.files.koreanFile) {
+      return res.status(400).json({ error: 'Both English and Korean files are required' });
     }
 
     if (!req.body.targetLanguage) {
       return res.status(400).json({ error: 'Target language is required' });
     }
 
-    const filePath = req.file.path;
+    const englishFilePath = req.files.englishFile[0].path;
+    const koreanFilePath = req.files.koreanFile[0].path;
     const targetLanguage = req.body.targetLanguage;
 
-    // Read and parse the VTT file
-    const fileContent = fs.readFileSync(filePath, 'utf8');
-    const subtitleBlocks = parseVTT(fileContent);
+    // Read and parse both VTT files
+    const englishContent = fs.readFileSync(englishFilePath, 'utf8');
+    const koreanContent = fs.readFileSync(koreanFilePath, 'utf8');
+    
+    const englishBlocks = parseVTT(englishContent);
+    const koreanBlocks = parseVTT(koreanContent);
 
-    if (!subtitleBlocks || subtitleBlocks.length === 0) {
-      return res.status(400).json({ error: 'Invalid VTT file format' });
+    if (!englishBlocks || englishBlocks.length === 0) {
+      return res.status(400).json({ error: 'Invalid English VTT file format' });
     }
 
+    if (!koreanBlocks || koreanBlocks.length === 0) {
+      return res.status(400).json({ error: 'Invalid Korean VTT file format' });
+    }
+
+    // Merge English and Korean subtitles for dual-language context
+    const mergedBlocks = mergeDualLanguageBlocks(englishBlocks, koreanBlocks);
+
     // Translate the subtitles
-    const translatedBlocks = await translateSubtitles(subtitleBlocks, targetLanguage, (progress) => {
+    const translatedBlocks = await translateSubtitles(mergedBlocks, targetLanguage, (progress) => {
       // TODO: Implement WebSocket for real-time progress updates
       console.log(`Translation progress: ${progress}%`);
     });
@@ -80,8 +94,9 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     // Format back to VTT
     const translatedVTT = formatVTT(translatedBlocks);
 
-    // Clean up uploaded file
-    fs.unlinkSync(filePath);
+    // Clean up uploaded files
+    fs.unlinkSync(englishFilePath);
+    fs.unlinkSync(koreanFilePath);
 
     // Send translated file
     res.setHeader('Content-Type', 'text/vtt');
@@ -91,9 +106,14 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error('Translation error:', error);
     
-    // Clean up uploaded file if it exists
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    // Clean up uploaded files if they exist
+    if (req.files) {
+      if (req.files.englishFile && fs.existsSync(req.files.englishFile[0].path)) {
+        fs.unlinkSync(req.files.englishFile[0].path);
+      }
+      if (req.files.koreanFile && fs.existsSync(req.files.koreanFile[0].path)) {
+        fs.unlinkSync(req.files.koreanFile[0].path);
+      }
     }
 
     res.status(500).json({ 
@@ -102,6 +122,41 @@ app.post('/api/translate', upload.single('file'), async (req, res) => {
     });
   }
 });
+
+// Helper function to merge English and Korean blocks
+function mergeDualLanguageBlocks(englishBlocks, koreanBlocks) {
+  const mergedBlocks = [];
+  const maxLength = Math.max(englishBlocks.length, koreanBlocks.length);
+  
+  for (let i = 0; i < maxLength; i++) {
+    const englishBlock = englishBlocks[i];
+    const koreanBlock = koreanBlocks[i];
+    
+    if (englishBlock && koreanBlock) {
+      // Use English timing as primary, combine text
+      mergedBlocks.push({
+        ...englishBlock,
+        text: englishBlock.text,
+        referenceText: koreanBlock.text
+      });
+    } else if (englishBlock) {
+      // Only English available
+      mergedBlocks.push({
+        ...englishBlock,
+        referenceText: ''
+      });
+    } else if (koreanBlock) {
+      // Only Korean available, use as reference
+      mergedBlocks.push({
+        ...koreanBlock,
+        text: '',
+        referenceText: koreanBlock.text
+      });
+    }
+  }
+  
+  return mergedBlocks;
+}
 
 // Error handling middleware
 app.use((error, req, res, next) => {
